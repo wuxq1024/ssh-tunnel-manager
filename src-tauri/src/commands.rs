@@ -63,7 +63,7 @@ pub fn save_tunnel(
 }
 
 #[tauri::command]
-pub fn delete_tunnel(id: String, manager: State<'_, TunnelManager>) -> Result<(), String> {
+pub fn delete_tunnel(id: String, manager: State<'_, Arc<TunnelManager>>) -> Result<(), String> {
     manager.stop(&id);
     credentials::purge(&id);
     let mut store = load_store();

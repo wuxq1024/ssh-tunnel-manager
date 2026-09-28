@@ -1,0 +1,5 @@
+# indexmap 1.9.3 的 autocfg 探测在 Tauri 构建环境下无法检测 std，
+# 导致 IndexMap<K, V, S> 的 S 缺少默认值，schemars 0.8 编译失败。
+# 全局传递 --cfg has_std 解决此问题。
+[build]
+rustflags = ["--cfg", "has_std"]

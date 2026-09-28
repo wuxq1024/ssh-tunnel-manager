@@ -163,7 +163,7 @@ enum SupervisorCommand {
 struct RunningTask {
     cmd_tx: mpsc::UnboundedSender<SupervisorCommand>,
     stats: Arc<StatsHandle>,
-    join: tokio::task::JoinHandle<()>,
+    join: tauri::async_runtime::JoinHandle<()>,
 }
 
 pub struct TunnelManager {
@@ -206,7 +206,7 @@ impl TunnelManager {
         let manager = self.clone();
         let cfg_id = cfg.id.clone();
 
-        let join = tokio::spawn(async move {
+        let join = tauri::async_runtime::spawn(async move {
             manager.supervisor(cfg, stats, &mut cmd_rx).await;
         });
 
@@ -222,7 +222,7 @@ impl TunnelManager {
         if let Some(t) = task {
             let _ = t.cmd_tx.send(SupervisorCommand::Stop);
             // 不等待 join —— supervisor 会自行收尾并设置 stopped 状态
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 let _ = t.join.await;
             });
         }

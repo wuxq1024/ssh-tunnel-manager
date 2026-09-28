@@ -65,7 +65,7 @@ pub fn run() {
                     match event.id.as_ref() {
                         "show" => show_main_window(app),
                         "quit" => {
-                            app.state::<TunnelManager>().stop_all();
+                            app.state::<std::sync::Arc<TunnelManager>>().stop_all();
                             app.exit(0);
                         }
                         _ => {}
@@ -94,7 +94,7 @@ pub fn run() {
                             api.prevent_close();
                             let _ = app_handle.get_webview_window("main").map(|w| w.hide());
                         } else {
-                            let mgr = app_handle.state::<TunnelManager>();
+                            let mgr = app_handle.state::<std::sync::Arc<TunnelManager>>();
                             mgr.stop_all();
                         }
                     }

@@ -21,3 +21,7 @@ Thumbs.db
 
 # Build artifacts
 icons/gen_icons.py
+
+# Logs
+crash.log
+*.log
