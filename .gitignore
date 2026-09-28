@@ -1,0 +1,23 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# WorkBuddy agent workspace (local memory, not for sharing)
+.workbuddy/
+
+# Rust
+src-tauri/target
+src-tauri/gen/schemas
+
+# Editor
+.vscode
+.idea
+*.sig-check.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+icons/gen_icons.py

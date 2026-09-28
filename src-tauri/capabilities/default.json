@@ -1,0 +1,18 @@
+{
+  "$schema": "gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "默认 capability：主窗口全部自定义命令 + 基础插件",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:event:default",
+    "shell:allow-open",
+    "dialog:default",
+    "opener:default"
+  ]
+}
