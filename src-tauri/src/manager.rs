@@ -111,11 +111,10 @@ impl StatsHandle {
         self.push_stats();
     }
 
-    #[allow(dead_code)]
     pub fn add_bytes(&self, _in: u64, _out: u64) {
         self.bytes_in.fetch_add(_in, Ordering::Relaxed);
         self.bytes_out.fetch_add(_out, Ordering::Relaxed);
-        self.push_stats();
+        // 不在此处推送 —— 高频调用会造成事件洪泛，由 supervisor 定期推送
     }
 
     pub fn snapshot(&self) -> TunnelStats {
@@ -134,7 +133,7 @@ impl StatsHandle {
         }
     }
 
-    fn push_stats(&self) {
+    pub(crate) fn push_stats(&self) {
         let _ = self.events.send(ManagerEvent::Stats(self.snapshot()));
     }
 }
@@ -321,6 +320,7 @@ impl TunnelManager {
                         // 等待: 命令 或 会话结束
                         // 注: Handle 实现 Future 但需要 &mut（与 Arc 共享冲突），
                         // 这里用轮询 is_closed() + tokio::time::sleep 实现
+                        let mut last_stats_push = std::time::Instant::now();
                         loop {
                             tokio::select! {
                                 cmd = cmd_rx.recv() => {
@@ -336,6 +336,11 @@ impl TunnelManager {
                                         // 会话结束（断线/keepalive 超时）
                                         stats.log("warn", "连接断开");
                                         break; // 内层 break → 重连判断
+                                    }
+                                    // 定期推送统计（流量/会话数）
+                                    if last_stats_push.elapsed() >= std::time::Duration::from_secs(2) {
+                                        stats.push_stats();
+                                        last_stats_push = std::time::Instant::now();
                                     }
                                 }
                             }

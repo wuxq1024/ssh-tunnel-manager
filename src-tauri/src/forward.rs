@@ -1,15 +1,76 @@
 //! 转发桥接：-R 入站通道 ↔ 本地目标、-L 本地监听 ↔ SSH 通道、-D SOCKS5
 
+use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use russh::client::{Handle, Msg};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::manager::StatsHandle;
 use crate::session::ClientHandler;
 
 pub type SharedHandle = Arc<Handle<ClientHandler>>;
+
+/// 字节统计流包装器：从 SSH 通道读取计入 in，向 SSH 通道写入计入 out
+struct CountingStream<S> {
+    inner: S,
+    stats: Arc<StatsHandle>,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for CountingStream<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        match Pin::new(&mut self.inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => {
+                let n = buf.filled().len() - before;
+                if n > 0 {
+                    self.stats.add_bytes(n as u64, 0);
+                }
+                Poll::Ready(Ok(()))
+            }
+            other => other,
+        }
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for CountingStream<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match Pin::new(&mut self.inner).poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => {
+                self.stats.add_bytes(0, n as u64);
+                Poll::Ready(Ok(n))
+            }
+            other => other,
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// 包装 SSH 通道流以统计流量
+fn counted<S>(stream: S, stats: &Arc<StatsHandle>) -> CountingStream<S> {
+    CountingStream {
+        inner: stream,
+        stats: stats.clone(),
+    }
+}
 
 /// -R：远程入站 channel 桥接到本地 target_host:target_port
 pub fn spawn_remote_bridge(
@@ -23,7 +84,7 @@ pub fn spawn_remote_bridge(
         stats.session_opened();
         match TcpStream::connect((host.as_str(), target_port)).await {
             Ok(mut tcp) => {
-                let mut ssh_stream = channel.into_stream();
+                let mut ssh_stream = counted(channel.into_stream(), &stats);
                 let res = tokio::io::copy_bidirectional(&mut tcp, &mut ssh_stream).await;
                 if let Err(e) = res {
                     debug_log(&format!("bridge ended: {e}"));
@@ -86,7 +147,7 @@ pub fn spawn_local_forward(
                 st.session_opened();
                 match h.channel_open_direct_tcpip(&th, tp as u32, "127.0.0.1", 0).await {
                     Ok(channel) => {
-                        let mut ssh_stream = channel.into_stream();
+                        let mut ssh_stream = counted(channel.into_stream(), &st);
                         let _ = tokio::io::copy_bidirectional(&mut tcp, &mut ssh_stream).await;
                     }
                     Err(e) => {
@@ -135,7 +196,7 @@ pub fn spawn_socks5(
 
             tokio::spawn(async move {
                 st.session_opened();
-                if let Err(e) = socks5_serve(&mut tcp, &h).await {
+                if let Err(e) = socks5_serve(&mut tcp, &h, &st).await {
                     debug_log(&format!("socks5 session: {e}"));
                 }
                 st.session_closed();
@@ -144,7 +205,11 @@ pub fn spawn_socks5(
     });
 }
 
-async fn socks5_serve(tcp: &mut TcpStream, handle: &SharedHandle) -> std::io::Result<()> {
+async fn socks5_serve(
+    tcp: &mut TcpStream,
+    handle: &SharedHandle,
+    stats: &Arc<StatsHandle>,
+) -> std::io::Result<()> {
     // ---- 握手 ----
     let mut buf = [0u8; 2];
     tcp.read_exact(&mut buf).await?; // VER NMETHODS
@@ -230,7 +295,7 @@ async fn socks5_serve(tcp: &mut TcpStream, handle: &SharedHandle) -> std::io::Re
         .await?;
 
     // ---- 双向桥接 ----
-    let mut ssh_stream = channel.into_stream();
+    let mut ssh_stream = counted(channel.into_stream(), stats);
     let _ = tokio::io::copy_bidirectional(tcp, &mut ssh_stream).await;
     Ok(())
 }

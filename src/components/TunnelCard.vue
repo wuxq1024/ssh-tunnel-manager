@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { NButton, NDropdown, NTag, useMessage } from "naive-ui";
 import { useTunnelStore } from "../stores/tunnels";
 import TunnelEditor from "./TunnelEditor.vue";
@@ -15,6 +15,14 @@ const emit = defineEmits<{
 const store = useTunnelStore();
 const message = useMessage();
 const showLog = ref(false);
+
+// 响应式时钟：驱动 uptime/统计重渲染
+const nowTick = ref(Date.now());
+let tickTimer: number | undefined;
+tickTimer = window.setInterval(() => {
+  nowTick.value = Date.now();
+}, 1000);
+onUnmounted(() => window.clearInterval(tickTimer));
 
 const stats = computed(() => store.stats[props.config.id]);
 const state = computed<TunnelState>(() => stats.value?.state ?? "stopped");
@@ -38,8 +46,9 @@ const stateMeta = computed(() => {
 });
 
 const uptime = computed(() => {
+  void nowTick.value; // 依赖时钟触发重算
   if (state.value !== "connected" || !stats.value?.connected_since) return null;
-  return Date.now() - stats.value.connected_since;
+  return nowTick.value - stats.value.connected_since;
 });
 
 function fmtBytes(n: number): string {
