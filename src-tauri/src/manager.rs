@@ -285,7 +285,21 @@ impl TunnelManager {
                                         ));
                                     }
                                     Err(e) => {
-                                        stats.log("error", &format!("-R {bind_addr}:{bind_port} 注册失败: {e}"));
+                                        let is_rejected = {
+                                            let s = format!("{e}");
+                                            s.to_lowercase().contains("reject")
+                                                || s.to_lowercase().contains("prohibit")
+                                        };
+                                        if is_rejected {
+                                            stats.log(
+                                                "error",
+                                                &format!(
+                                                    "-R {bind_addr}:{bind_port} 被服务器拒绝。常见原因：①远端 {bind_port} 端口已被占用（残留的旧 ssh -R 会话或服务器程序监听），稍后自动重连会重试；②sshd 配置限制转发（PermitListen / AllowTcpForwarding）。可在服务器执行 ss -tlnp | grep {bind_port} 排查"
+                                                ),
+                                            );
+                                        } else {
+                                            stats.log("error", &format!("-R {bind_addr}:{bind_port} 注册失败: {e}"));
+                                        }
                                         forward_ok = false;
                                     }
                                 }
