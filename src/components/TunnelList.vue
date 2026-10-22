@@ -8,18 +8,23 @@ import TunnelEditor from "./TunnelEditor.vue";
 const store = useTunnelStore();
 const message = useMessage();
 
-// ---- 排序（持久化到 localStorage）----
-type SortKey = "created" | "host" | "name";
+// ---- 排序 / 过滤（持久化到 localStorage）----
+type SortKey = "created" | "host" | "name" | "state";
 type SortOrder = "asc" | "desc";
+type StateFilter = "all" | "running" | "stopped" | "error";
 
 const LS_KEY = "tunnel-list-sort";
+type SavedPref = { by: SortKey; order: SortOrder; filter: StateFilter };
 const saved = (() => {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return null;
     const o = JSON.parse(raw);
-    if (["created", "host", "name"].includes(o.by) && ["asc", "desc"].includes(o.order)) {
-      return o as { by: SortKey; order: SortOrder };
+    const okBy = ["created", "host", "name", "state"].includes(o.by);
+    const okOrder = ["asc", "desc"].includes(o.order);
+    const okFilter = ["all", "running", "stopped", "error"].includes(o.filter ?? "all");
+    if (okBy && okOrder && okFilter) {
+      return { by: o.by, order: o.order, filter: o.filter ?? "all" } as SavedPref;
     }
   } catch {
     /* ignore */
@@ -29,20 +34,51 @@ const saved = (() => {
 
 const sortBy = ref<SortKey>(saved?.by ?? "created");
 const sortOrder = ref<SortOrder>(saved?.order ?? "desc");
+const stateFilter = ref<StateFilter>(saved?.filter ?? "all");
 
-watch([sortBy, sortOrder], () => {
-  localStorage.setItem(LS_KEY, JSON.stringify({ by: sortBy.value, order: sortOrder.value }));
+watch([sortBy, sortOrder, stateFilter], () => {
+  localStorage.setItem(
+    LS_KEY,
+    JSON.stringify({ by: sortBy.value, order: sortOrder.value, filter: stateFilter.value })
+  );
 });
 
 const sortOptions = [
   { label: "创建时间", value: "created" },
   { label: "IP 地址", value: "host" },
   { label: "任务名称", value: "name" },
+  { label: "运行状态", value: "state" },
 ];
+
+const filterOptions = [
+  { label: "全部状态", value: "all" },
+  { label: "运行中", value: "running" },
+  { label: "已停止", value: "stopped" },
+  { label: "错误", value: "error" },
+];
+
+// 任务运行状态（来自 store.stats，无记录视为 stopped）
+function stateOf(id: string) {
+  return store.stats[id]?.state ?? "stopped";
+}
+// 状态分组：运行中（含连接/重连）/ 错误 / 已停止
+function groupOf(id: string): "running" | "error" | "stopped" {
+  const s = stateOf(id);
+  if (s === "connected" || s === "connecting" || s === "reconnecting") return "running";
+  if (s === "error") return "error";
+  return "stopped";
+}
+// 状态排序权重：运行中 → 错误 → 已停止
+const STATE_RANK: Record<string, number> = { running: 0, error: 1, stopped: 2 };
+
+const filtered = computed(() => {
+  if (stateFilter.value === "all") return store.tunnels;
+  return store.tunnels.filter((t) => groupOf(t.id) === stateFilter.value);
+});
 
 const sorted = computed(() => {
   const dir = sortOrder.value === "asc" ? 1 : -1;
-  return [...store.tunnels].sort((a, b) => {
+  return [...filtered.value].sort((a, b) => {
     let r = 0;
     switch (sortBy.value) {
       case "created":
@@ -53,6 +89,14 @@ const sorted = computed(() => {
         break;
       case "name":
         r = a.name.localeCompare(b.name, "zh-Hans-CN");
+        break;
+      case "state":
+        r = STATE_RANK[groupOf(a.id)] - STATE_RANK[groupOf(b.id)];
+        if (r !== 0) {
+          // 同组内再按细粒度状态区分（connected < connecting < reconnecting）
+          const order: Record<string, number> = { connected: 0, connecting: 1, reconnecting: 2, error: 3, stopped: 4 };
+          r = (order[stateOf(a.id)] ?? 9) - (order[stateOf(b.id)] ?? 9);
+        }
         break;
     }
     // 同值时按创建时间倒序兜底，保证稳定顺序
@@ -85,8 +129,14 @@ async function onStop(id: string) {
 <template>
   <div class="tunnel-list">
     <div class="list-toolbar">
-      <span class="count">共 {{ store.tunnels.length }} 个任务</span>
+      <span class="count">共 {{ store.tunnels.length }} 个任务<template v-if="stateFilter !== 'all'"> · 当前显示 {{ sorted.length }} 个</template></span>
       <div class="toolbar-right">
+        <n-select
+          v-model:value="stateFilter"
+          :options="filterOptions"
+          size="small"
+          class="filter-select"
+        />
         <div class="sort-group">
           <n-select
             v-model:value="sortBy"
@@ -121,6 +171,16 @@ async function onStop(id: string) {
             <n-button type="primary">创建第一个任务</n-button>
           </template>
         </TunnelEditor>
+      </template>
+    </n-empty>
+
+    <n-empty
+      v-else-if="sorted.length === 0"
+      description="没有符合当前状态过滤条件的任务"
+      class="empty"
+    >
+      <template #extra>
+        <n-button size="small" @click="stateFilter = 'all'">显示全部</n-button>
       </template>
     </n-empty>
 
@@ -168,6 +228,10 @@ async function onStop(id: string) {
 
 .sort-select {
   width: 110px;
+}
+
+.filter-select {
+  width: 100px;
 }
 
 .loading {
