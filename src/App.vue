@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from "vue";
-import { NConfigProvider, NMessageProvider, zhCN, dateZhCN } from "naive-ui";
+import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN } from "naive-ui";
 import { useTunnelStore } from "./stores/tunnels";
 import TunnelList from "./components/TunnelList.vue";
 import SettingsModal from "./components/SettingsModal.vue";
@@ -14,24 +14,26 @@ onUnmounted(() => store.dispose());
 <template>
   <n-config-provider :theme="null" :locale="zhCN" :date-locale="dateZhCN" style="height: 100%">
     <n-message-provider>
-      <div class="app-shell">
-        <header class="app-header">
-          <div class="brand">
-            <img src="/icon.png" alt="logo" class="logo" />
-            <span class="title">SSH Tunnel Manager</span>
-          </div>
-          <div class="header-right">
-            <span class="running-badge" v-if="store.runningCount > 0">
-              {{ store.runningCount }} 个运行中
-            </span>
-            <SettingsModal />
-          </div>
-        </header>
+      <n-dialog-provider>
+        <div class="app-shell">
+          <header class="app-header">
+            <div class="brand">
+              <img src="/icon.png" alt="logo" class="logo" />
+              <span class="title">SSH Tunnel Manager</span>
+            </div>
+            <div class="header-right">
+              <span class="running-badge" v-if="store.runningCount > 0">
+                {{ store.runningCount }} 个运行中
+              </span>
+              <SettingsModal />
+            </div>
+          </header>
 
-        <main class="app-main">
-          <TunnelList />
-        </main>
-      </div>
+          <main class="app-main">
+            <TunnelList />
+          </main>
+        </div>
+      </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { NButton, NDrawer, NDrawerContent, NScrollbar } from "naive-ui";
+import { NButton, NDrawer, NDrawerContent, NScrollbar, useDialog } from "naive-ui";
 import { useTunnelStore } from "../stores/tunnels";
 
 const props = defineProps<{
@@ -11,12 +11,26 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: "update:show", v: boolean): void }>();
 const store = useTunnelStore();
+const dialog = useDialog();
 
 const lines = computed(() => (store.logs[props.tunnelId] ?? []).map(
   (l) => `${new Date(l.ts).toLocaleTimeString()} [${l.level.toUpperCase()}] ${l.message}`
 ));
 
 const hasLines = computed(() => lines.value.length > 0);
+
+function onClear() {
+  if (!hasLines.value) return;
+  dialog.warning({
+    title: "清空日志",
+    content: `确定要清空任务「${props.tunnelName}」的全部日志吗？清空后不可恢复。`,
+    positiveText: "清空",
+    negativeText: "取消",
+    onPositiveClick: () => {
+      store.logs[props.tunnelId] = [];
+    },
+  });
+}
 </script>
 
 <template>
@@ -43,7 +57,7 @@ const hasLines = computed(() => lines.value.length > 0);
       </n-scrollbar>
       <div v-else class="placeholder">暂无日志</div>
       <template #footer>
-        <n-button size="small" @click="store.logs[tunnelId] = []">清空</n-button>
+        <n-button size="small" @click="onClear">清空</n-button>
       </template>
     </n-drawer-content>
   </n-drawer>

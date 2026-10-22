@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from "vue";
-import { NButton, NDropdown, NTag, useMessage } from "naive-ui";
+import { NButton, NDropdown, NTag, useMessage, useDialog } from "naive-ui";
 import { useTunnelStore } from "../stores/tunnels";
 import TunnelEditor from "./TunnelEditor.vue";
 import LogDrawer from "./LogDrawer.vue";
@@ -14,6 +14,7 @@ const emit = defineEmits<{
 
 const store = useTunnelStore();
 const message = useMessage();
+const dialog = useDialog();
 const showLog = ref(false);
 
 // 响应式时钟：驱动 uptime/统计重渲染
@@ -78,9 +79,20 @@ const ruleSummary = computed(() =>
   })
 );
 
-async function onDelete() {
-  await store.deleteTunnel(props.config.id);
-  message.success("已删除");
+function onDelete() {
+  const runningNow = running.value;
+  dialog.warning({
+    title: "删除任务",
+    content: runningNow
+      ? `任务「${props.config.name}」正在运行中。删除后隧道将断开并停止，且不可恢复（已保存的密码/密钥口令也会一并清除）。确定要删除吗？`
+      : `确定要删除任务「${props.config.name}」吗？删除后不可恢复（已保存的密码/密钥口令也会一并清除）。`,
+    positiveText: "删除",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      await store.deleteTunnel(props.config.id);
+      message.success("已删除");
+    },
+  });
 }
 
 function onMenuAction(key: string) {
